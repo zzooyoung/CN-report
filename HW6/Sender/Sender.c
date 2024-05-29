@@ -21,6 +21,9 @@ int wnd_use = 4;
 int send_wnd[5];
 int pkt_num;
 int time_clock;
+
+int pkt_num_index = 0;
+
 struct packet
 {
     int send_time;
@@ -77,32 +80,34 @@ void *sendFunc(void *arg) {
     int loss_switch = 1;
     pkt_num = 0;
     time_clock = 0;
+
+    FILE *fp;
+    fp = fopen("text.txt", "rb");
+    if(fp == NULL) {
+        printf("파일 불러오기를 실패하였습니다.\n");
+        exit(0);
+    }
     
     while(1) {
+        int read_count;
         if(pkt_num == 5){
             pthread_exit(NULL);
         }
-        
-        if (pkt_num == 1 && loss_switch == 1) {
-                printf("packet %d is transmitted.(%s)\n", pkt_num, pkt[pkt_num].content);
-                loss_switch = 0; 
-            }
-        else {
-            strcpy(pkt_buffer.content, pkt[pkt_num].content);
-            pkt_buffer.number = pkt_num;
-            pkt_buffer.Seq = pkt[pkt_num].Seq;
-            char *temp;
-            strcpy(temp, pkt[pkt_num].content);
-            pkt_buffer.checksum = (unsigned short)0;
-            retval = send(sock, (struct packet_buffer*)&pkt_buffer, (int)sizeof(pkt_buffer), 0);
-            if (retval == -1){
-                perror("send");
-                break;
-            }
-            printf("packet %d is transmitted. (%s)\n", pkt_num, pkt[pkt_num].content);
-                
+    
+        if (!feof(fp)){
+            read_count = fread(pkt_buffer.content, 2, sizeof(pkt_buffer.content), fp);
+            break;
         }
-            
+        read_count = fread(pkt_buffer.content, 2, sizeof(pkt_buffer.content), fp);
+        pkt_buffer.checksum = calculateChecksum(pkt_buffer.content, (int)strlen(pkt_buffer.content));
+        pkt_buffer.pkt_num_indicator = pkt_num_index;
+        pkt_num_index++;
+        retval = send(sock, (struct packet_buffer*)&pkt_buffer, (int)sizeof(pkt_buffer), 0);
+        if (retval == -1){
+            perror("send");
+            break;
+        }
+        printf("packet %d is transmitted. (%s)\n", pkt_buffer.pkt_num_indicator, pkt_buffer.content);
         pkt_num++;
         time_clock++;
         for(int i = 0; i<5; i++){  // TimeoutInterver = 15

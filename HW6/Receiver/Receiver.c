@@ -12,9 +12,9 @@ char *SERVERIP = (char *)"127.0.0.1";
 #define BUFSIZE 512
 
 struct packet_buffer {
-    int number;
-    int Seq;
-    char content[45];
+    char content[4];
+    unsigned short checksum;  //checksum : 2 Byte
+    int pkt_num_indicator;
     unsigned short checksum;
 };
 struct packet_buffer pkt_buffer;
@@ -97,6 +97,16 @@ int main(int argc, char *argv[]) {
     
 
     int ack_num = 0;
+    struct packet_buffer *recv_pkt_buf = (struct packet_buffer *)malloc(50);
+
+    FILE *fp;
+    fp = fopen("output.txt", "wb");
+    if (fp == NULL) {
+        perror("fopen()");
+        exit(0);
+    }
+
+
     while(1){
         
         retval = recv(client_sock, (struct packet_buffer*)&pkt_buffer, BUFSIZE, 0);
@@ -106,6 +116,8 @@ int main(int argc, char *argv[]) {
         }
         else if (retval == 0)
             break;
+        
+        recv
         char *tmp; 
         strcpy(tmp, pkt_buffer.content);
         // checksum 일치 : 0, 불일치 -1
