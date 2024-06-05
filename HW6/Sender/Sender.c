@@ -6,17 +6,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <time.h>
 
 char *SERVERIP = (char *)"127.0.0.1";
 #define SERVERPORT 9000
 #define BUFSIZE 512
 
-
-char message[5][45] = {{"I am a boy."}, {"You are a girl."}, {"There are many animals in the zoo."},
-    {"철수와 영희는 서로 좋아합니다!"}, {"나는 점심을 맛있게 먹었습니다."}};  
-
 int var = 0;
-int wnd_size = 4;
 int wnd_use = 4;
 int send_wnd[5];
 int pkt_num;
@@ -24,21 +20,19 @@ int time_clock;
 
 int pkt_num_index = 0;
 
-struct packet
-{
-    int send_time;
-    int ack_flag;
-    int Seq;
-    char content[45];
-};
-struct packet pkt[5];
-
 struct packet_buffer {
     char content[4];
     unsigned short checksum;  //checksum : 2 Byte
     int pkt_num_indicator;
 };
 struct packet_buffer pkt_buffer;
+
+struct timeout_buf {
+    int time;
+    FILE *ptr;
+    int ack;
+};
+struct timeout_buf t_buf[50];
 
 // Checksum 구현 부분
 // 두 바이트 값을 더하고, 오버플로 발생 시 처리하는 함수
@@ -82,7 +76,8 @@ void *sendFunc(void *arg) {
     time_clock = 0;
 
     FILE *fp;
-    fp = fopen("text.txt", "rb");
+    char f_name[10] = "text.txt";
+    fp = fopen(f_name, "rb");
     if(fp == NULL) {
         printf("파일 불러오기를 실패하였습니다.\n");
         exit(0);
@@ -90,10 +85,18 @@ void *sendFunc(void *arg) {
     
     while(1) {
         int read_count;
-        if(pkt_num == 5){
-            pthread_exit(NULL);
+        wnd_use--;
+
+        for(int idx=0; idx<50; idx++){
+            if(t_buf[idx].ack==0) {
+                if(clock() - t_buf[idx].time / CLOCKS_PER_SEC >0.5) {
+                    fp = t_buf[idx].ptr;
+                    pkt_num_index = idx;
+                    break;
+                }
+            }
         }
-    
+
         if (!feof(fp)){
             read_count = fread(pkt_buffer.content, 2, sizeof(pkt_buffer.content), fp);
             break;
@@ -109,13 +112,13 @@ void *sendFunc(void *arg) {
         }
         printf("packet %d is transmitted. (%s)\n", pkt_buffer.pkt_num_indicator, pkt_buffer.content);
         pkt_num++;
-        time_clock++;
-        for(int i = 0; i<5; i++){  // TimeoutInterver = 15
-            if (time_clock - pkt[i].send_time >= 15) {
-                pkt_num = i;
-            }
-        }
+        t_buf[pkt_buffer.pkt_num_indicator].ack = 0;
+        t_buf[pkt_buffer.pkt_num_indicator].time = clock();
+        t_buf[pkt_buffer.pkt_num_indicator].ptr = fp;
             
+        while(wnd_use<=0){
+
+        }
         usleep(50000);  // 송신 주기 0.05초 
     }
     
@@ -137,32 +140,10 @@ void *recvFunc(void *arg) {
             break;
 
         buf[retval] = '\0';
-        
+        wnd_use++;
         int ack_num = atoi(buf);
-        printf("(ACK = %s)is received.\n", buf);
-        for(int i=0; i<5; i++){
-            if (pkt[i].Seq = ack_num){
-                pkt[i].ack_flag++;
-                if(pkt[i].ack_flag>3){
-                    strcpy(pkt_buffer.content, pkt[i].content);
-                    pkt_buffer.Seq = (int)strlen(pkt[i].content);
-                    char *temp;
-                    strcpy(temp, pkt[pkt_num].content);
-                    pkt_buffer.checksum = (unsigned short)calculateChecksum(temp, (int)strlen(temp));
-                    retval = send(sock, (struct packet_buffer*)&pkt_buffer, (int)sizeof(pkt_buffer), 0);
-                    if (retval == -1) {
-                        perror("send");
-                        break;
-                    }
-                    printf("packet %d is retransmitted. (%s)\n", i, pkt_buffer.content);
-                    exit(1);
-                    break;
-
-                }
-            }
-        }
-        usleep(100000);
-        
+        printf("(ACK = %s)is received. and", buf);
+        t_buf[ack_num].ack = 1;
     }
 
     pthread_exit(NULL);
@@ -178,14 +159,6 @@ int main() {
     if (sock == -1){
         perror("socket");
         exit(1);
-    }
-    
-    int seq_acc = 0;
-    for(int i=0; i<5; i++){
-        pkt[i].ack_flag = 0;
-        strcpy(pkt[i].content, message[i]);
-        pkt[i].Seq = seq_acc;
-        seq_acc = seq_acc + (int)strlen(pkt[i].content);
     }
 
     struct sockaddr_in serveraddr;

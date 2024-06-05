@@ -15,9 +15,9 @@ struct packet_buffer {
     char content[4];
     unsigned short checksum;  //checksum : 2 Byte
     int pkt_num_indicator;
-    unsigned short checksum;
 };
-struct packet_buffer pkt_buffer;
+struct packet_buffer pkt_recv;
+struct packet_buffer pkt_buf[7];
 
 unsigned short addWithCarry(unsigned short a, unsigned short b) {
     unsigned int sum = a + b;
@@ -56,6 +56,7 @@ int checkChecksum(const char *str, int length, int Checksum) {
 int main(int argc, char *argv[]) {
     int retval;
     int listen_sock = socket(AF_INET, SOCK_STREAM, 0);
+    int pkt_seq = 0;
     if (listen_sock == -1) {
         perror("socket");
         exit(1);
@@ -106,10 +107,9 @@ int main(int argc, char *argv[]) {
         exit(0);
     }
 
-
     while(1){
         
-        retval = recv(client_sock, (struct packet_buffer*)&pkt_buffer, BUFSIZE, 0);
+        retval = recv(client_sock, (struct packet_buffer*)&pkt_recv, BUFSIZE, 0);
         if (retval == -1) {
             perror("recv");
             break;
@@ -117,18 +117,20 @@ int main(int argc, char *argv[]) {
         else if (retval == 0)
             break;
         
-        recv
+
+
+        
+
         char *tmp; 
-        strcpy(tmp, pkt_buffer.content);
+        strcpy(tmp, pkt_recv.content);
         // checksum 일치 : 0, 불일치 -1
-        if(checkChecksum(tmp, (int)strlen(tmp), pkt_buffer.checksum)){
-            printf("packet %d is received and there is no error. (%s) ", pkt_buffer.number, pkt_buffer.content);
-            if(ack_num == pkt_buffer.Seq){
-                ack_num = ack_num + (int)strlen(pkt_buffer.content);
-            }
+        if(checkChecksum(tmp, (int)strlen(tmp), pkt_recv.checksum)){
+            printf("packet %d is received and there is no error. (%s) ", pkt_recv.pkt_num_indicator, pkt_recv.content);
+                ack_num = ack_num + (int)strlen(pkt_recv.content);
+                pkt_seq++;
         }
         else {
-            printf("An error occurred in packet %d.", pkt_buffer.number);
+            printf("An error occurred in packet %d.", pkt_recv.pkt_num_indicator);
         }
 
         
