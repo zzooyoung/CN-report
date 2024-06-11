@@ -27,54 +27,6 @@ struct packet pkt[8];
 
 
 
-// void *sendFunc(void *arg) {
-//     char buf[BUFSIZE + 1];
-//     int sock = *(int *)arg;
-//     int len;
-//     int retval;
-//     int loss_switch = 1;
-    
-//     while(1) {
-//         if (wnd_use > 0) {
-            
-//             if (pkt_num == 2 && loss_switch == 1) {
-//                 printf("\"%s\"is transmitted.\n", pkt[pkt_num].name);
-//                 loss_switch = 0;
-//             }
-//             else {
-//                 strcpy(buf, pkt[pkt_num].name);
-//                 retval = send(sock, buf, (int)strlen(buf), 0);
-//                 if (retval == -1){
-//                     perror("send");
-//                     break;
-//                 }
-//                 printf("\"%s\"is transmitted.\n", buf);
-//             }
-            
-//             wnd_use--;
-            
-//             for(int j=0;j<pkt_num;j++){
-//                 if(pkt[j].timer<5){
-//                     pkt[j].timer++;
-//                     printf("%d's timer : %d\n", j, pkt[j].timer);
-//                 }
-//                 if(pkt[j].timer>4 && pkt[j].ack_flag==0){
-//                         printf("%s is timeout.\n", pkt[j].name);
-//                         wnd_use = pkt_num - j;
-//                         pkt_num = j - 1;
-
-//                     }
-//             }
-            
-//             pkt_num++;
-//             sleep(0.0001);
-//         }
-//     }
-    
-
-//     pthread_exit(NULL);
-// }
-
 void *sendFunc(void *arg) {
     char buf[BUFSIZE + 1];
     int sock = *(int *)arg;

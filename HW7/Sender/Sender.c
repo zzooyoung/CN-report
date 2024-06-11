@@ -6,34 +6,31 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <time.h>
+#include <sys/time.h>
+
 
 char *SERVERIP = (char *)"127.0.0.1";
 #define SERVERPORT 9000
 #define BUFSIZE 512
 
+
 int var = 0;
+int wnd_size = 4;
 int wnd_use = 4;
 int send_wnd[5];
-int pkt_num;
-int time_clock;
+int send_window = 4;
+int pkt_count = 0;
+int file_end_flag = 0;
 
-int pkt_num_index = 0;
-
-struct packet_buffer {
-    char content[4];
-    unsigned short checksum;  //checksum : 2 Byte
-    int pkt_num_indicator;
+struct packet {  
+    char content[10];
+    unsigned short checksum;  // checksum : 2 Byte
+    short pkt_num_indicator;
 };
-struct packet_buffer pkt_buffer;
-
-struct timeout_buf {
-    int time;
-    FILE *ptr;
-    int ack;
-};
-struct timeout_buf t_buf[50];
-
+struct packet pkt;
+struct packet window_pkt[4];
+int ack_chk[4];
+struct timeval timeval[4];
 // Checksum 구현 부분
 // 두 바이트 값을 더하고, 오버플로 발생 시 처리하는 함수
 unsigned short addWithCarry(unsigned short a, unsigned short b) {
@@ -66,72 +63,63 @@ unsigned short calculateChecksum(const char *str, int length) {
     checksum = ~checksum;
     return (unsigned short)checksum;
 }
- 
 
-void *sendFunc(void *arg) { 
+void *sendFunc(void *arg) {
+    char buf[BUFSIZE + 1];
     int sock = *(int *)arg;
     int retval;
     int loss_switch = 1;
-    pkt_num = 0;
-    time_clock = 0;
-
+    int finish_switch = 0; 
+    
     FILE *fp;
-    char f_name[10] = "text.txt";
-    fp = fopen(f_name, "rb");
+    fp = fopen("input1.txt", "rb");
     if(fp == NULL) {
         printf("파일 불러오기를 실패하였습니다.\n");
         exit(0);
     }
-    
     while(1) {
-        int read_count;
-        wnd_use--;
-
-        for(int idx=0; idx<50; idx++){
-            if(t_buf[idx].ack==0) {
-                if(clock() - t_buf[idx].time / CLOCKS_PER_SEC >0.5) {
-                    fp = t_buf[idx].ptr;
-                    pkt_num_index = idx;
-                    break;
-                }
+        while(send_window > 0){
+            if(feof(fp)) {
+                printf("파일 전송이 완료되었습니다.\n");
+                pthread_exit(NULL);
+                exit(0);
             }
+            int read_count = fread(pkt.content, sizeof(char), 10, fp);
+            pkt.checksum = calculateChecksum(pkt.content, (int)strlen(pkt.content));
+            pkt.pkt_num_indicator = pkt_count;
+            pkt_count++;
+            retval = send(sock, (struct packet_buffer*)&pkt, (int)sizeof(pkt), 0);
+            if(retval == -1) {
+                perror("send");
+                break;
+            }
+            printf("packet %d is transmitted. (%s)\n", pkt.pkt_num_indicator, pkt.content);
+            if(pkt_count < 4) {
+                window_pkt[pkt_count] = pkt;
+                
+                gettimeofday(&timeval[pkt_count], NULL);
+
+            } else {
+                window_pkt[0] = window_pkt[1];
+                window_pkt[1] = window_pkt[2];
+                window_pkt[2] = window_pkt[3];
+                window_pkt[3] = pkt;
+                timeval[0] = timeval[1];
+                timeval[1] = timeval[2];
+                timeval[2] = timeval[3];
+                gettimeofday(&timeval[3], NULL);
+
+            }
+            usleep(500000);  // 송신주기 0.5초
         }
-
-        read_count = fread(pkt_buffer.content, 2, sizeof(pkt_buffer.content), fp);
-        pkt_buffer.checksum = calculateChecksum(pkt_buffer.content, (int)strlen(pkt_buffer.content));
-        pkt_buffer.pkt_num_indicator = pkt_num_index;
-        pkt_num_index++;
-        retval = send(sock, (struct packet_buffer*)&pkt_buffer, (int)sizeof(pkt_buffer), 0);
-        if (retval == -1){
-            perror("send");
-            break;
-        }
-        printf("packet %d is transmitted. (%s)\n", pkt_buffer.pkt_num_indicator, pkt_buffer.content);
-        pkt_num++;
-        t_buf[pkt_buffer.pkt_num_indicator].ack = 0;
-        t_buf[pkt_buffer.pkt_num_indicator].time = clock();
-        t_buf[pkt_buffer.pkt_num_indicator].ptr = fp;
-            
-        if (feof(fp)){
-            read_count = fread(pkt_buffer.content, 2, sizeof(pkt_buffer.content), fp);
-            break;
-        }
-
-        while(wnd_use<=0){
-
-        }
-
-
-        usleep(50000);  // 송신 주기 0.05초 
     }
-    
-
     pthread_exit(NULL);
 }
 
 void *recvFunc(void *arg) {
     int sock = *(int *)arg;
     int retval;
+    int ack_seq = 0;
     while(1){
         char buf[BUFSIZE + 1];
         retval = recv(sock, buf, BUFSIZE, 0);
@@ -143,16 +131,21 @@ void *recvFunc(void *arg) {
             break;
 
         buf[retval] = '\0';
-        wnd_use++;
-        int ack_num = atoi(buf);
-        printf("(ACK = %s)is received. and", buf);
-        t_buf[ack_num].ack = 1;
+        
+        int ack_num = atoi(strpbrk(buf, " "));
+
+        if(ack_seq == ack_num){
+            printf("\"ACK %s\"is received.", buf);
+            send_window++;
+        }
+        else{
+            printf("\"ACK %s\"is received and recorded.\n", buf);
+        }
+        
     }
 
     pthread_exit(NULL);
 }
-
-
 
 int main() {
     pthread_t tid1, tid2;
@@ -163,7 +156,7 @@ int main() {
         perror("socket");
         exit(1);
     }
-
+    
     struct sockaddr_in serveraddr;
     memset(&serveraddr, 0, sizeof(serveraddr));
     serveraddr.sin_family = AF_INET;
